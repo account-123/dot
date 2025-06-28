@@ -1,167 +1,79 @@
 #!/usr/bin/env bash
 
-# ###################################################################
-# Fully Automated Broadcom Wi-Fi & Bluetooth Driver Installer
-#
-# This script automates the installation of Broadcom drivers.
-# - Step 1: Installs Kernel Headers and the official Wi-Fi driver.
-# - Step 2: Checks for 'yay'. If not found, it installs it.
-#           Then, it uses 'yay' to install the Bluetooth driver from the AUR.
-#
-# Default for all prompts is 'Yes'.
-# ###################################################################
+# ===============================================================
+# Broadcom BCM43142 Wi-Fi & Bluetooth Installer for Arch Linux
+# Updated with proper kernel header handling and DKMS check
+# ===============================================================
 
-# --- Configuration & Colors ---
-set -e  # Exit immediately if a command exits with a non-zero status.
-C_BLUE="\e[1;34m"
-C_GREEN="\e[1;32m"
-C_RED="\e[1;31m"
-C_YELLOW="\e[1;33m"
-C_RESET="\e[0m"
+set -e
+C_BLUE="\e[1;34m"; C_GREEN="\e[1;32m"; C_RED="\e[1;31m"; C_YELLOW="\e[1;33m"; C_RESET="\e[0m"
 
-# --- Helper Functions ---
-info() {
-    echo -e "${C_BLUE}INFO:${C_RESET} $1"
-}
-
-success() {
-    echo -e "${C_GREEN}SUCCESS:${C_RESET} $1"
-}
-
-warn() {
-    echo -e "${C_YELLOW}WARNING:${C_RESET} $1"
-}
-
-error() {
-    echo -e "${C_RED}ERROR:${C_RESET} $1" >&2
-    exit 1
-}
-
-# --- Initial Checks ---
+info()     { echo -e "${C_BLUE}INFO:${C_RESET} $1"; }
+success()  { echo -e "${C_GREEN}SUCCESS:${C_RESET} $1"; }
+warn()     { echo -e "${C_YELLOW}WARNING:${C_RESET} $1"; }
+error()    { echo -e "${C_RED}ERROR:${C_RESET} $1" >&2; exit 1; }
 
 info "Checking for root privileges..."
-# Check if script is run as root, and also ensure SUDO_USER is set.
-if [[ $EUID -ne 0 ]] || [[ -z "$SUDO_USER" ]]; then
-   error "This script must be run with sudo: 'sudo bash ${0##*/}'"
-fi
+[[ $EUID -ne 0 || -z "$SUDO_USER" ]] && error "Run as: sudo bash ${0##*/}"
 success "Running with root privileges."
 
-info "Verifying that 'pacman' is the package manager..."
-if ! command -v pacman &> /dev/null; then
-    error "This script is designed for Arch Linux and its derivatives, which use 'pacman'. Aborting."
-fi
+info "Verifying package manager..."
+command -v pacman &> /dev/null || error "This script is for Arch Linux only."
 success "Pacman found."
 
+# --- Step 1: Install kernel headers and broadcom-wl-dkms ---
+info "Installing kernel headers and Broadcom Wi-Fi driver..."
 
-# --- Step 1: Detect and Install Kernel Headers & Wi-Fi Driver ---
+# Always install both headers
+pacman -Syu --needed --noconfirm linux-headers linux-lts-headers broadcom-wl-dkms
 
-info "--- Step 1 of 2: Installing Kernel Headers & Official Wi-Fi Driver ---"
-headers_to_install=()
-for kernel_image in /boot/vmlinuz-*; do
-    [ -f "$kernel_image" ] || continue
-    kernel_name=$(basename "$kernel_image" | sed 's/^vmlinuz-//')
-    headers_to_install+=("${kernel_name}-headers")
-done
-
-if [ ${#headers_to_install[@]} -eq 0 ]; then
-    error "Could not detect any kernel images in /boot (e.g., /boot/vmlinuz-linux). Cannot proceed."
+# Confirm DKMS status
+if ! dkms status | grep -q 'broadcom-wl.*installed'; then
+    error "DKMS did not successfully build the 'wl' driver."
 fi
+success "DKMS built the Broadcom wl module."
 
-# Remove potential duplicates
-headers_to_install=($(printf "%s\n" "${headers_to_install[@]}" | sort -u))
+# --- Step 2: Install Bluetooth firmware via yay ---
+info "Installing Broadcom Bluetooth firmware..."
 
-# Combine headers and the official wl driver
-packages_to_install=("broadcom-wl-dkms")
-packages_to_install+=("${headers_to_install[@]}")
-
-warn "The first step is to install the official packages:"
-for pkg in "${packages_to_install[@]}"; do
-    echo -e "  - ${C_YELLOW}${pkg}${C_RESET}"
-done
-echo
-
-# If user types 'n' or 'N', cancel. Otherwise, proceed.
-read -p "Do you want to proceed? (Y/n) " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Nn]$ ]]; then
-    info "Installation cancelled by user."
-    exit 0
-fi
-
-info "Starting installation with pacman. This will refresh repositories..."
-if pacman -Syu --needed "${packages_to_install[@]}"; then
-    success "Step 1 complete. Headers and Wi-Fi driver installed."
-else
-    error "Pacman encountered an error during Step 1. Please check the output."
-fi
-
-
-# --- Step 2: Install Broadcom Bluetooth Driver (from AUR) ---
-
-echo
-info "--- Step 2 of 2: Installing Broadcom Bluetooth Driver (from AUR) ---"
-
-# Check for yay, install if it's missing
 if ! command -v yay &> /dev/null; then
-    warn "AUR helper 'yay' is not installed. It is required to install 'broadcom-bt-firmware'."
-    
-    # If user types 'n' or 'N', abort. Otherwise, proceed with installing yay.
-    read -p "Do you want this script to install 'yay' automatically? (Y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
-        error "'yay' is required to continue. Aborting."
-    fi
-
-    info "Installing 'yay'..."
-    # Install dependencies for building packages
+    warn "'yay' not found. Installing it..."
     pacman -S --needed --noconfirm git base-devel
-    # Temporarily drop root privileges to build the package
     sudo -u "$SUDO_USER" bash <<'EOF'
-set -e
-# Create a temporary directory for the build
-cd /tmp
-if [ -d "yay" ]; then
-    rm -rf yay
-fi
-echo -e "\e[1;34mINFO:\e[0m Cloning yay repository..."
-git clone https://aur.archlinux.org/yay.git
-cd yay
-echo -e "\e[1;34mINFO:\e[0m Building and installing yay..."
-makepkg -si --noconfirm
-echo -e "\e[1;34mINFO:\e[0m Cleaning up yay build files..."
 cd /tmp
 rm -rf yay
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
 EOF
-    success "'yay' has been successfully installed."
+    success "yay installed successfully."
 fi
 
-# Now that we have yay, use it to install the Bluetooth driver
-info "Using 'yay' to install 'broadcom-bt-firmware' from the AUR..."
-# Run yay as the regular user
 sudo -u "$SUDO_USER" yay -S --needed --noconfirm broadcom-bt-firmware
-success "Step 2 complete. 'broadcom-bt' installed."
+success "Bluetooth firmware installed."
 
+# --- Step 3: Blacklist conflicting modules ---
+info "Blacklisting conflicting Broadcom modules..."
 
-# --- Post-Installation Configuration ---
-
-info "Blacklisting conflicting kernel modules (b43, ssb, bcma) to ensure 'wl' is used."
-BLACKLIST_FILE="/etc/modprobe.d/broadcom-blacklist.conf"
-cat > "$BLACKLIST_FILE" <<EOF
-# This file was automatically generated by this script.
-# It prevents native drivers from loading so that 'wl' can be used.
+cat > /etc/modprobe.d/broadcom-blacklist.conf <<EOF
+# Prevent native Broadcom modules from loading
 blacklist b43
 blacklist b43legacy
 blacklist ssb
 blacklist bcma
 EOF
-success "Created blacklist file at ${BLACKLIST_FILE}"
+success "Conflicting modules blacklisted."
 
-# --- Final Instructions ---
-echo
-success "All steps completed!"
-info "Attempting to load the new 'wl' driver now..."
-modprobe wl || warn "Could not load the 'wl' module immediately. A reboot will solve this."
+# --- Step 4: Load wl module ---
+info "Loading 'wl' kernel module..."
+if modprobe wl; then
+    success "'wl' module loaded successfully."
+else
+    error "Failed to load 'wl' module. Reboot and try again."
+fi
 
+# --- Final Reminder ---
 echo
-warn "A REBOOT IS STRONGLY RECOMMENDED to ensure all changes take effect."
-info "After rebooting, your Broadcom Wi-Fi and Bluetooth should be operational."
+warn "A REBOOT IS STRONGLY RECOMMENDED to ensure everything works."
+info "After reboot, run: lspci -k | grep -A 3 -i network"
+success "Broadcom Wi-Fi and Bluetooth setup complete!"
