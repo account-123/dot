@@ -8,7 +8,7 @@
 # - Step 2: Checks for 'yay'. If not found, it installs it.
 #           Then, it uses 'yay' to install the Bluetooth driver from the AUR.
 #
-# Designed for Arch Linux & derivatives.
+# Default for all prompts is 'Yes'.
 # ###################################################################
 
 # --- Configuration & Colors ---
@@ -80,9 +80,10 @@ for pkg in "${packages_to_install[@]}"; do
 done
 echo
 
-read -p "Do you want to proceed? (y/N) " -n 1 -r
+# If user types 'n' or 'N', cancel. Otherwise, proceed.
+read -p "Do you want to proceed? (Y/n) " -n 1 -r
 echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+if [[ $REPLY =~ ^[Nn]$ ]]; then
     info "Installation cancelled by user."
     exit 0
 fi
@@ -102,40 +103,42 @@ info "--- Step 2 of 2: Installing Broadcom Bluetooth Driver (from AUR) ---"
 
 # Check for yay, install if it's missing
 if ! command -v yay &> /dev/null; then
-    warn "AUR helper 'yay' is not installed. It is required to install 'broadcom-bt'."
-    read -p "Do you want this script to install 'yay' automatically? (y/N) " -n 1 -r
+    warn "AUR helper 'yay' is not installed. It is required to install 'broadcom-bt-firmware'."
+    
+    # If user types 'n' or 'N', abort. Otherwise, proceed with installing yay.
+    read -p "Do you want this script to install 'yay' automatically? (Y/n) " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        info "Installing 'yay'..."
-        # Install dependencies for building packages
-        pacman -S --needed git base-devel
-        # Temporarily drop root privileges to build the package
-        sudo -u "$SUDO_USER" bash <<'EOF'
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        error "'yay' is required to continue. Aborting."
+    fi
+
+    info "Installing 'yay'..."
+    # Install dependencies for building packages
+    pacman -S --needed --noconfirm git base-devel
+    # Temporarily drop root privileges to build the package
+    sudo -u "$SUDO_USER" bash <<'EOF'
 set -e
 # Create a temporary directory for the build
 cd /tmp
 if [ -d "yay" ]; then
     rm -rf yay
 fi
-info "Cloning yay repository..."
+echo -e "\e[1;34mINFO:\e[0m Cloning yay repository..."
 git clone https://aur.archlinux.org/yay.git
 cd yay
-info "Building and installing yay..."
+echo -e "\e[1;34mINFO:\e[0m Building and installing yay..."
 makepkg -si --noconfirm
-info "Cleaning up yay build files..."
+echo -e "\e[1;34mINFO:\e[0m Cleaning up yay build files..."
 cd /tmp
 rm -rf yay
 EOF
-        success "'yay' has been successfully installed."
-    else
-        error "'yay' is required to continue. Aborting."
-    fi
+    success "'yay' has been successfully installed."
 fi
 
 # Now that we have yay, use it to install the Bluetooth driver
-info "Using 'yay' to install 'broadcom-bt' from the AUR..."
+info "Using 'yay' to install 'broadcom-bt-firmware' from the AUR..."
 # Run yay as the regular user
-sudo -u "$SUDO_USER" yay -S --needed --noconfirm broadcom-bt
+sudo -u "$SUDO_USER" yay -S --needed --noconfirm broadcom-bt-firmware
 success "Step 2 complete. 'broadcom-bt' installed."
 
 
