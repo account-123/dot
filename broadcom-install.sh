@@ -52,22 +52,32 @@ if ! command -v pacman &> /dev/null; then
 fi
 success "Pacman found."
 
-# 3. Detect Installed Kernels and Required Headers
+# 3. Detect Installed Kernels and Required Headers (Robust Method)
 info "Detecting installed kernels to determine which headers are needed..."
-# This command looks at which packages own the kernel image files in /boot
-# It's a robust way to find all installed kernel packages (e.g., linux, linux-lts)
-installed_kernels=$(pacman -Qqo /boot/vmlinuz-* | sort -u)
-
-if [ -z "$installed_kernels" ]; then
-    error "Could not detect any installed kernels in /boot. Cannot proceed."
-fi
-
+# This new method directly parses filenames in /boot, which is more reliable.
 headers_to_install=()
-for kernel_pkg in $installed_kernels; do
-    headers_to_install+=("${kernel_pkg}-headers")
+detected_kernel_names=()
+for kernel_image in /boot/vmlinuz-*; do
+    # Continue if the glob doesn't match any files
+    [ -f "$kernel_image" ] || continue
+    
+    # From a filename like '/boot/vmlinuz-linux-lts', extract 'linux-lts'
+    kernel_name=$(basename "$kernel_image" | sed 's/^vmlinuz-//')
+    
+    detected_kernel_names+=("$kernel_name")
+    headers_to_install+=("${kernel_name}-headers")
 done
 
-info "Detected kernel package(s): ${C_YELLOW}${installed_kernels//$'\n'/ }${C_RESET}"
+if [ ${#headers_to_install[@]} -eq 0 ]; then
+    error "Could not detect any kernel images in /boot (e.g., /boot/vmlinuz-linux). Cannot proceed."
+fi
+
+# Remove potential duplicates
+detected_kernel_names=($(printf "%s\n" "${detected_kernel_names[@]}" | sort -u))
+headers_to_install=($(printf "%s\n" "${headers_to_install[@]}" | sort -u))
+
+
+info "Detected kernel(s): ${C_YELLOW}${detected_kernel_names[*]}${C_RESET}"
 info "Corresponding header package(s) needed: ${C_YELLOW}${headers_to_install[*]}${C_RESET}"
 
 # 4. Prepare Package List and Ask for Confirmation
