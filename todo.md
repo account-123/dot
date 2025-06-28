@@ -9,3 +9,6 @@ sudo pacman -S pipewire wireplumber xdg-desktop-portal-hyprland
 
 #make broadcom driver support bluetooth and wifi
 
+install font 
+Figtree
+
