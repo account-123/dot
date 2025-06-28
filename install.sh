@@ -9,6 +9,21 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# --- Enable Multilib Repository ---
+read -p "Should I enable the multilib repository? (Needed for Steam, 32-bit drivers, etc.) [Y/n]: " choice
+# Default to Yes if the user just presses Enter
+if [[ -z "$choice" || "$choice" == [yY] ]]; then
+    echo "Enabling multilib repository..."
+    # Uncomment the [multilib] section in /etc/pacman.conf
+    sed -i "/^#\\[multilib\\]/,/^#Include/"'s/^#//' /etc/pacman.conf
+else
+    echo "Skipping multilib repository."
+fi
+
+# --- Synchronize Package Databases ---
+echo "Synchronizing package databases..."
+pacman -Syu --noconfirm
+
 # --- Graphics Driver Installation ---
 echo "Select the graphics driver to install:"
 options=("NVIDIA" "AMD" "Intel" "Skip")
@@ -55,7 +70,6 @@ else
     exit 1
 fi
 
-
 # --- Hyprland and SDDM Installation ---
 echo "Installing Hyprland, SDDM, and essential packages..."
 pacman -S --noconfirm --needed hyprland waybar kitty sddm xdg-desktop-portal-hyprland ttf-jetbrains-mono noto-fonts noto-fonts-cjk noto-fonts-emoji
@@ -67,8 +81,8 @@ systemctl enable sddm.service
 echo "Installation complete! Please reboot your system for the changes to take effect."
 
 # Ask the user if they want to reboot
-read -p "Do you want to reboot now? (y/N): " choice
-case "$choice" in
+read -p "Do you want to reboot now? (y/N): " reboot_choice
+case "$reboot_choice" in
   y|Y )
     echo "Rebooting..."
     reboot
